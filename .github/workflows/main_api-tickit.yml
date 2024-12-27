@@ -53,4 +53,4 @@ jobs:
           app-name: 'api-tickit'
           slot-name: 'Production'
           package: .
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_B4008CD97E584DC5BB107665BD91B24F }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_8A90703A137444E9B84695B9193B980C }}
