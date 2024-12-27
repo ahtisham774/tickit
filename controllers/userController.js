@@ -1,5 +1,5 @@
 // controllers/userController.js
-var { hash, compare } = require('bcrypt')
+var bcrypt = require('bcryptjs')
 var jwt = require('jsonwebtoken')
 var User = require('../models/User')
 var nodemailer = require('nodemailer')
@@ -58,19 +58,20 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'User already exists' })
     }
 
-    // Hash the password
-    const hashedPassword = await hash(password, 10)
-
-    // Create a new user
-    const user = new User({
-      username,
-      email,
-      password: hashedPassword,
-      role: role || 'consumer' // Default to 'consumer' if role is not provided
+    bcrypt.hash(password, 10, async (err, hashedPassword) => {
+      if (err) {
+        return res.status(500).json({ message: 'Server error', err })
+      }
+      // Create a new user
+      const user = new User({
+        username,
+        email,
+        password: hashedPassword,
+        role: role || 'consumer'
+      })
+      await user.save()
+      res.status(201).json({ message: 'User created successfully' })
     })
-
-    await user.save()
-    res.status(201).json({ message: 'User registered successfully' })
   } catch (error) {
     res.status(500).json({ message: 'Server error', error })
   }
@@ -88,10 +89,11 @@ exports.login = async (req, res) => {
     }
 
     // Compare passwords
-    const isMatch = await compare(password, user.password)
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid email or password' })
-    }
+    bcrypt.compare(password, user.password, (err, isMatch) => {
+      if (err || !isMatch) {
+        return res.status(400).json({ message: 'Invalid email or password' })
+      }
+    })
     if (user.role === 'creator') {
       return res.status(400).json({ message: 'Invalid email or password' })
     }
@@ -149,39 +151,43 @@ exports.registerCreatorByAdmin = async (req, res) => {
       return res.status(400).json({ message: 'User already exists' })
     }
 
-    const hashedPassword = await hash(password, 10)
+    bycrypt.hash(password, 10, async (err, hashedPassword) => {
+      if (err) {
+        return res.status(500).json({ message: 'Server error', err })
+      }
 
-    const user = new User({
-      username,
-      email,
-      password: hashedPassword,
-      role: 'creator'
-    })
+      const user = new User({
+        username,
+        email,
+        password: hashedPassword,
+        role: 'creator'
+      })
 
-    await user.save()
+      await user.save()
 
-    // Generate token containing the user's ID
-    const token = jwt.sign({ _id: user._id, role: 'creator' }, EMAIL_SECRET, {
-      expiresIn: '7d'
-    })
+      // Generate token containing the user's ID
+      const token = jwt.sign({ _id: user._id, role: 'creator' }, EMAIL_SECRET, {
+        expiresIn: '7d'
+      })
 
-    // Construct login URL with the token as a query parameter
-    const loginUrl = `${process.env.CLIENT_URL}/creator/login?token=${token}`
+      // Construct login URL with the token as a query parameter
+      const loginUrl = `${process.env.CLIENT_URL}/creator/login?token=${token}`
 
-    // Send email to the creator with the login link
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Creator Account Created - Login Information',
-      html: `Your creator account has been created. Login with the following details:\n
+      // Send email to the creator with the login link
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Creator Account Created - Login Information',
+        html: `Your creator account has been created. Login with the following details:\n
                Email: ${email}\n
                Password: ${password}\n
                <a href="${loginUrl}" target="_blank">Click here to login</a>`
-    })
+      })
 
-    res
-      .status(201)
-      .json({ message: 'Creator user registered successfully, email sent' })
+      res
+        .status(201)
+        .json({ message: 'Creator user registered successfully, email sent' })
+    })
   } catch (error) {
     res.status(500).json({ message: 'Server error', error })
   }
@@ -210,7 +216,7 @@ exports.creatorLoginWithToken = async (req, res) => {
 
     // Check if the user exists and is a creator
     const user = await User.findById(creatorId)
-    
+
     if (!user || user.role != 'creator') {
       return res
         .status(403)
@@ -223,10 +229,11 @@ exports.creatorLoginWithToken = async (req, res) => {
     }
 
     // Compare provided password with stored hash
-    const isMatch = await compare(password, user.password)
-    if (!isMatch) {
-      return res.status(401).json({ err: 'Invalid Account' })
-    }
+    bcrypt.compare(password, user.password, (err, isMatch) => {
+      if (err || !isMatch) {
+        return res.status(401).json({ err: 'Invalid email or password' })
+      }
+    })
 
     // Generate a session token (JWT) for the creator login
     const sessionToken = jwt.sign(
@@ -322,23 +329,23 @@ exports.getCurrentUser = async (req, res) => {
 
 exports.searchUser = async (req, res) => {
   try {
-    const search = req.query.search;
+    const search = req.query.search
 
     if (!search) {
-      return res.status(400).json({ message: 'Search query is required' });
+      return res.status(400).json({ message: 'Search query is required' })
     }
 
     // Search for users whose username matches the search query (case insensitive)
     const users = await User.find({
       username: { $regex: search, $options: 'i' } // Case-insensitive regex search
-    }).select('username email'); // Select only relevant fields for the frontend
+    }).select('username email') // Select only relevant fields for the frontend
 
-    res.status(200).json(users);
+    res.status(200).json(users)
   } catch (err) {
-    console.error('Error searching users:', err);
-    res.status(500).json({ message: 'Server error', error: err });
+    console.error('Error searching users:', err)
+    res.status(500).json({ message: 'Server error', error: err })
   }
-};
+}
 // exports.getUserDetails = async (req, res) => {
 //   try {
 //     const { userId } = req.params;
@@ -364,20 +371,19 @@ exports.searchUser = async (req, res) => {
 //   }
 // };
 
-
 exports.getUserDetails = async (req, res) => {
   try {
-    const  userId  = req.params.id;
+    const userId = req.params.id
 
     if (!userId) {
-      return res.status(400).json({ message: 'User ID is required' });
+      return res.status(400).json({ message: 'User ID is required' })
     }
 
     // Find the user by ID
-    const user = await User.findById(userId).select('username email');
+    const user = await User.findById(userId).select('username email')
 
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: 'User not found' })
     }
 
     // Aggregate to get videos and their like counts
@@ -388,14 +394,14 @@ exports.getUserDetails = async (req, res) => {
           from: 'likedislikes', // Collection name of LikeDislike
           localField: '_id',
           foreignField: 'video',
-          as: 'likesData',
-        },
+          as: 'likesData'
+        }
       },
       {
         $project: {
           title: 1,
           url: 1,
-          description:1,
+          description: 1,
           public_id: 1,
           createdAt: 1,
           likeCount: {
@@ -403,17 +409,17 @@ exports.getUserDetails = async (req, res) => {
               $filter: {
                 input: '$likesData',
                 as: 'like',
-                cond: { $eq: ['$$like.type', 'like'] },
-              },
-            },
-          },
-        },
-      },
-    ]);
+                cond: { $eq: ['$$like.type', 'like'] }
+              }
+            }
+          }
+        }
+      }
+    ])
 
-    res.status(200).json({ user, videos });
+    res.status(200).json({ user, videos })
   } catch (err) {
-    console.error('Error fetching user details:', err);
-    res.status(500).json({ message: 'Server error', error: err });
+    console.error('Error fetching user details:', err)
+    res.status(500).json({ message: 'Server error', error: err })
   }
-};
+}
